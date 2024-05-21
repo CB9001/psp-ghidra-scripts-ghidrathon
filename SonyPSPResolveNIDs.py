@@ -22,7 +22,7 @@ from ghidra.program.model.scalar import Scalar
 from ghidra.app.cmd.function import DeleteFunctionCmd
 from ghidra.app.util.cparser.C import CParser
 from ghidra.app.util.opinion import ElfLoader
-from ghidra.app.util.bin.format.objectiveC.ObjectiveC1_Utilities import *
+from ghidra.app.util.bin.format.objectiveC import ObjectiveC1_Utilities
 from ghidra.program.model.data import TerminatedStringDataType
 import xml.etree.ElementTree as ET
 import os.path
@@ -49,7 +49,7 @@ def createPSPModuleInfoStruct():
     };"""
 
     # Get Data Type Manager
-    data_type_manager = currentProgram.getDataTypeManager()
+    data_type_manager = currentProgram().getDataTypeManager()
 
     # Create CParser
     parser = CParser(data_type_manager)
@@ -61,7 +61,7 @@ def createPSPModuleInfoStruct():
     datatype = data_type_manager.addDataType(parsed_datatype, DataTypeConflictHandler.DEFAULT_HANDLER)
 
     # datatype isn't accurate, so lets request it from data type manager and return it
-    return currentProgram.getDataTypeManager().getDataType("/PspModuleInfo")
+    return currentProgram().getDataTypeManager().getDataType("/PspModuleInfo")
 
 def createPSPModuleImportStruct():
     # struct from prxtypes.h
@@ -77,7 +77,7 @@ def createPSPModuleImportStruct():
     };"""
 
     # Get Data Type Manager
-    data_type_manager = currentProgram.getDataTypeManager()
+    data_type_manager = currentProgram().getDataTypeManager()
 
     # Create CParser
     parser = CParser(data_type_manager)
@@ -89,7 +89,7 @@ def createPSPModuleImportStruct():
     datatype = data_type_manager.addDataType(parsed_datatype, DataTypeConflictHandler.DEFAULT_HANDLER)
 
     # datatype isn't accurate, so lets request it from data type manager and return it
-    return currentProgram.getDataTypeManager().getDataType("/PspModuleImport")
+    return currentProgram().getDataTypeManager().getDataType("/PspModuleImport")
 
 def createPSPModuleExportStruct():
     # struct from prxtypes.h
@@ -105,7 +105,7 @@ def createPSPModuleExportStruct():
     };"""
 
     # Get Data Type Manager
-    data_type_manager = currentProgram.getDataTypeManager()
+    data_type_manager = currentProgram().getDataTypeManager()
 
     # Create CParser
     parser = CParser(data_type_manager)
@@ -117,17 +117,17 @@ def createPSPModuleExportStruct():
     datatype = data_type_manager.addDataType(parsed_datatype, DataTypeConflictHandler.DEFAULT_HANDLER)
 
     # datatype isn't accurate, so lets request it from data type manager and return it
-    return currentProgram.getDataTypeManager().getDataType("/PspModuleExport")
+    return currentProgram().getDataTypeManager().getDataType("/PspModuleExport")
 
 def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
     # undefine .lib.ent section members
-    currentProgram.getListing().clearCodeUnits(exports_addr, exports_end, False)
+    currentProgram().getListing().clearCodeUnits(exports_addr, exports_end, False)
 
     export_t = createPSPModuleExportStruct()
     export_t_len = export_t.getLength()
     num_exports = exports_end.subtract(exports_addr)/export_t_len
     if num_exports < 1:
-        print "No exports to resolve"
+        print("No exports to resolve")
         return 0
 
     exports_offset = 0
@@ -135,13 +135,13 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
     modules = []
     while addr.add(export_t_len).compareTo(exports_end) <= 0:
         # create struct at address
-        currentProgram.getListing().createData(addr, export_t, export_t_len)
+        currentProgram().getListing().createData(addr, export_t, export_t_len)
         # create module object from data
         module = getDataAt(addr)
         # append module to modules list
         modules.append(module)
         # get entry len & update exports_offset
-        entry_len = module.getComponent(2).value.getUnsignedValue()
+        entry_len = module.getComponent(2).getValue().getUnsignedValue()
         exports_offset += 4*entry_len
         # update address
         addr = exports_addr.add(exports_offset)
@@ -154,8 +154,8 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
         module_name_addr = module.getComponent(0)
         module_name = "(none)"
         # why we can't just get a number to compare against 0 is beyond me
-        if module_name_addr.value.toString() != "00000000":
-            module_name = getDataAt(module_name_addr.value).value
+        if module_name_addr.getValue().toString() != "00000000":
+            module_name = getDataAt(module_name_addr.getValue()).getValue()
         elif module_index == 0:
             module_name = moduleInfo_name
         else:
@@ -164,9 +164,9 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
         module_index += 1
 
         # another roundabout way to get an actual number
-        num_vars  = module.getComponent(3).value.getUnsignedValue()
-        num_funcs = module.getComponent(4).value.getUnsignedValue()
-        nids_base = module.getComponent(5).value
+        num_vars  = module.getComponent(3).getValue().getUnsignedValue()
+        num_funcs = module.getComponent(4).getValue().getUnsignedValue()
+        nids_base = module.getComponent(5).getValue()
         num_nids = num_vars + num_funcs
         stub_base = nids_base.add(4 * num_nids)
         # at stub_base, function NIDs come first, followed by variable NIDs
@@ -175,7 +175,7 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
         createDwords(nids_base, num_nids)
         # convert raw data to pointers for vars & funcs
         for n in range(num_nids):
-            applyData(currentProgram, PointerDataType(), stub_base.add(4 * n))
+            ObjectiveC1_Utilities.applyData(currentProgram(), PointerDataType(), stub_base.add(4 * n))
         # label the NIDs with the module name
         createLabel(nids_base, module_name+"_nids", True)
         # label the funcs with the module name
@@ -184,27 +184,27 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
         if num_vars > 0:
             createLabel(stub_base.add(4*num_funcs), module_name+"_vars", True)
 
-        print "Resolving Export NIDs for",module_name
+        print("Resolving Export NIDs for",module_name)
         for func_idx in range(num_funcs):
             nid_addr = nids_base.add(4 * func_idx)
-            stub_addr = getDataAt(stub_base.add(4 * func_idx)).value
+            stub_addr = getDataAt(stub_base.add(4 * func_idx)).getValue()
             # get NID hex and convert to uppercase
-            nid = str(getDataAt(nid_addr).value).upper()
+            nid = str(getDataAt(nid_addr).getValue()).upper()
             # ensure 0x instead of 0X
             nid = nid.replace('X', 'x')
             # resolve NID to function name
             label = getNameForNID(nidDB, module_name, nid)
             # delete any existing function so we can re-name it
             df = DeleteFunctionCmd(stub_addr, True)
-            df.applyTo(currentProgram)
+            df.applyTo(currentProgram())
             # create a function with the proper name
             createFunction(stub_addr, label)
 
         for var_idx in range(num_vars):
             nid_addr = nids_base.add(4*num_funcs + 4*var_idx)
-            stub_addr = getDataAt(stub_base.add(4*num_funcs + 4*var_idx)).value
+            stub_addr = getDataAt(stub_base.add(4*num_funcs + 4*var_idx)).getValue()
             # get NID hex and convert to uppercase
-            nid = str(getDataAt(nid_addr).value).upper()
+            nid = str(getDataAt(nid_addr).getValue()).upper()
             # ensure 0x instead of 0X
             nid = nid.replace('X', 'x')
             # resolve NID to variable name
@@ -213,14 +213,14 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
 
 def resolveImports(imports_addr, imports_end, nidDB):
     # undefine .lib.stub section members
-    currentProgram.getListing().clearCodeUnits(imports_addr, imports_end, False)
+    currentProgram().getListing().clearCodeUnits(imports_addr, imports_end, False)
 
     # create array of PspModuleImport
     import_t = createPSPModuleImportStruct()
     import_t_len = import_t.getLength()
     num_imports = imports_end.subtract(imports_addr)/import_t_len
     if num_imports < 1:
-        print "No imports to resolve"
+        print("No imports to resolve")
         return 0
 
     imports_offset = 0
@@ -228,13 +228,13 @@ def resolveImports(imports_addr, imports_end, nidDB):
     modules = []
     while addr.add(import_t_len).compareTo(imports_end) <= 0:
         # create struct at address
-        currentProgram.getListing().createData(addr, import_t, import_t_len)
+        currentProgram().getListing().createData(addr, import_t, import_t_len)
         # create module object from data
         module = getDataAt(addr)
         # append module to modules list
         modules.append(module)
         # get entry len & update exports_offset
-        entry_len = module.getComponent(2).value.getUnsignedValue()
+        entry_len = module.getComponent(2).getValue().getUnsignedValue()
         imports_offset += 4 * entry_len
         # update address
         addr = imports_addr.add(imports_offset)
@@ -242,28 +242,28 @@ def resolveImports(imports_addr, imports_end, nidDB):
     # iterate through array of library imports
     for module in modules:
         # validate name field, thanks to FW 6.61 wlan.prx (See Issue #1)
-        module_name_ptr = module.getComponent(0).value
+        module_name_ptr = module.getComponent(0).getValue()
         module_name_data = getDataAt(module_name_ptr)
         if module_name_data is None:
-            print "WARNING: Attempting to correct incomplete string datatype for PSPModuleImport.name"
+            print("WARNING: Attempting to correct incomplete string datatype for PSPModuleImport.name")
             try:
-                currentProgram.getListing().createData(module_name_ptr, TerminatedStringDataType.dataType)
+                currentProgram().getListing().createData(module_name_ptr, TerminatedStringDataType.dataType)
             except ghidra.program.model.util.CodeUnitInsertionException as e:
                 # this is brittle but we lack a better way right now
                 # fingers crossed that Ghidra doesn't change their python exception message
                 match = re.match(".*([0-8A-Fa-f]{8})\sto\s([0-8A-Fa-f]{8})", e.message)
                 if match:
-                    print "WARNING: Clearing data from ", match.group(1), "to", match.group(2)
-                    currentProgram.getListing().clearCodeUnits(module_name_ptr.getNewAddress(int("0x"+match.group(1), 16)), module_name_ptr.getNewAddress(int("0x"+match.group(2), 16)), False)
-                    currentProgram.getListing().createData(module_name_ptr, TerminatedStringDataType.dataType)
+                    print("WARNING: Clearing data from ", match.group(1), "to", match.group(2))
+                    currentProgram().getListing().clearCodeUnits(module_name_ptr.getNewAddress(int("0x"+match.group(1), 16)), module_name_ptr.getNewAddress(int("0x"+match.group(2), 16)), False)
+                    currentProgram().getListing().createData(module_name_ptr, TerminatedStringDataType.dataType)
 
         # roundabout way to grab the string pointed to by the name field
-        module_name = getDataAt(module.getComponent(0).value).value
+        module_name = getDataAt(module.getComponent(0).getValue()).getValue()
         # another roundabout way to get an actual number
         # num_vars  = module.getComponent(3).value.getUnsignedValue()
-        num_funcs = module.getComponent(4).value.getUnsignedValue()
-        nids_base = module.getComponent(5).value
-        stub_base = module.getComponent(6).value
+        num_funcs = module.getComponent(4).getValue().getUnsignedValue()
+        nids_base = module.getComponent(5).getValue()
+        stub_base = module.getComponent(6).getValue()
         # TODO: account for variables here, like above.
         #       We have yet to see variables in an import
         # num_nids = num_vars + num_funcs
@@ -272,26 +272,26 @@ def resolveImports(imports_addr, imports_end, nidDB):
         # label the NIDs with the module name
         createLabel(nids_base, module_name+"_nids", True)
 
-        print "Resolving Import NIDs for",module_name
+        print("Resolving Import NIDs for", module_name)
         for func_idx in range(num_funcs):
             nid_addr = nids_base.add(4*func_idx)
             stub_addr = stub_base.add(8*func_idx) # should this be 4?
             # get NID hex and convert to uppercase
-            nid = str(getDataAt(nid_addr).value).upper()
+            nid = str(getDataAt(nid_addr).getValue()).upper()
             # ensure 0x instead of 0X
             nid = nid.replace('X', 'x')
             # resolve NID to function name
             label = getNameForNID(nidDB, module_name, nid)
             # delete any existing function so we can re-name it
             df = DeleteFunctionCmd(stub_addr, True)
-            df.applyTo(currentProgram)
+            df.applyTo(currentProgram())
             # create a function with the proper name
             createFunction(stub_addr, label)
 
 def getModuleInfoAddrFromLoadCommands():
     # Calculate the address os sceModuleInfo by examining the first load command
     # in _elfProgramHeaders and subtracting p_offset from p_paddr
-    loadcmds = getDataAt(currentProgram.getMemory().getBlock("_elfProgramHeaders").getStart())
+    loadcmds = getDataAt(currentProgram().getMemory().getBlock("_elfProgramHeaders").getStart())
     # get first load command
     loadcmd = loadcmds.getComponent(0)
     # 2nd component is p_offset
@@ -306,7 +306,7 @@ def getModuleInfoAddrFromLoadCommands():
     sceModuleInfo_addr = getAddressFactory().getAddress(load_paddr.toString())
 
     # get the ELF's image base since PRX's aren't based at 0
-    image_base = currentProgram.getImageBase().getAddressableWordOffset() 
+    image_base = currentProgram().getImageBase().getAddressableWordOffset() 
 
     return sceModuleInfo_addr.add(image_base)
 
@@ -316,17 +316,17 @@ def findAndLoadModuleInfoStruct():
     sceModuleInfo_t_len = sceModuleInfo_t.getLength()
 
     # .lib.stub isn't required in PRXes, so use .rodata.sceModuleInfo instead.
-    sceModuleInfo_section = currentProgram.getMemory().getBlock(".rodata.sceModuleInfo")
+    sceModuleInfo_section = currentProgram().getMemory().getBlock(".rodata.sceModuleInfo")
     if sceModuleInfo_section is None:
         # Just kidding, this isn't guaranteed to exist either - I'm looking at you, Assassin's Creed - Bloodlines.
-        print "Could not find .rodata.sceModuleInfo section, calculating its location from ELF Program Headers"
+        print("Could not find .rodata.sceModuleInfo section, calculating its location from ELF Program Headers")
         sceModuleInfo_addr = getModuleInfoAddrFromLoadCommands()
     else:
         sceModuleInfo_addr = sceModuleInfo_section.getStart()
 
     # re-create sceModuleInfo struct at the given address
-    currentProgram.getListing().clearCodeUnits(sceModuleInfo_addr, sceModuleInfo_addr.add(sceModuleInfo_t_len), False)
-    currentProgram.getListing().createData(sceModuleInfo_addr, sceModuleInfo_t)
+    currentProgram().getListing().clearCodeUnits(sceModuleInfo_addr, sceModuleInfo_addr.add(sceModuleInfo_t_len), False)
+    currentProgram().getListing().createData(sceModuleInfo_addr, sceModuleInfo_t)
     return getDataAt(sceModuleInfo_addr)
 
 def loadNIDDB(xml_file):
@@ -350,7 +350,7 @@ def main():
 
     sceModuleInfo = findAndLoadModuleInfoStruct()
     # 2nd component is the module's name
-    module_name = sceModuleInfo.getComponent(1).value
+    module_name = sceModuleInfo.getComponent(1).getValue()
     # sanitize the name for use in Ghidra labels
     module_name = module_name.replace(" ", "_")
     # 4th component is ptr to exports
